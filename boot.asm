@@ -1,4 +1,4 @@
-; Multiboot header
+; kernel_src/boot.asm
 MBALIGN  equ  1 << 0
 MEMINFO  equ  1 << 1
 FLAGS    equ  MBALIGN | MEMINFO
