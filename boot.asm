@@ -11,6 +11,14 @@ align 4
     dd FLAGS
     dd CHECKSUM
 
+section .data
+global mbr_bin
+mbr_bin:
+    incbin "mbr.bin"
+mbr_bin_end:
+global mbr_bin_size
+mbr_bin_size: dd mbr_bin_end - mbr_bin
+
 section .bss
 align 16
 stack_bottom:
@@ -21,6 +29,10 @@ section .text
 global _start:function (_start.end - _start)
 _start:
     mov esp, stack_top
+    
+    push eax ; magic
+    push ebx ; mb_info
+    
     extern kmain
     call kmain
     cli
@@ -28,3 +40,8 @@ _start:
     hlt
     jmp .hang
 .end:
+
+global _kernel_start
+global _kernel_end
+_kernel_start: dd 0x100000 ; This is a bit hacky, but we know where we are
+_kernel_end:   dd _kernel_end ; We'll use linker symbols instead
