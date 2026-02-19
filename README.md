@@ -3,20 +3,46 @@
 Bu kernel x86 32-bit mimarisinde çalisan, Multiboot ve MBR uyumlu, FAT32 dosya sistemi yapisina sahip bir çekirdektir.
 
 ## Yenilikler (v3.0)
-- **Gelistirilmis Depolama Destegi:** LBA48 destegi ile çok büyük disklerin (TB seviyesi) boyutunu dogru hesaplar ve gösterir.
-- **FAT32 Dosya Sistemi:** HDD'ye kurulumda diski FAT32 standartlarina uygun (BPB dahil) formatlar.
-- **Kararli Boot (LBA):** HDD'den boot ederken eski CHS yöntemi yerine modern LBA Extensions (`int 0x13 ah=0x42`) kullanir. Bu sayede her türlü disk boyutunda loading hatasi giderilmistir.
-- **Detayli Bilgi:** Disk boyutu GB ve MB cinsinden hassas olarak gösterilir.
+- **Klavye & RAM Testi:** Yazdiginiz verileri 0x1100000 adresine yazar ve anlik olarak dogrular.
+- **Gelistirilmis Depolama:** LBA48 destegi ile TB seviyesindeki disklerin boyutunu dogru gösterir.
+- **FAT32 Uyumluluk:** HDD'ye kurulumda diski FAT32 standartlarina (BPB) uygun formatlar.
+- **Kararli Boot:** HDD'den boot ederken modern LBA Extensions (\`int 0x13 ah=0x42\`) kullanir.
+- **Gelistirilmis Giris:** Kernel artik bir jump talimati ile baslar, bu da HDD boot kararliligini artirir.
 
 ## Ekran Çiktilari
-- "Kernel Çalisiyor"
-- "Durum: Isodan/Depolama alanindan boot edildi"
-- "Depolama Bilgisi: ... GB (... sektor)"
-- "Bellek Bilgisi: ... MB RAM"
+- \"Kernel Çalisiyor\"
+- \"Durum: Isodan/Depolama alanindan boot edildi\"
+- \"Depolama Bilgisi: ... GB (... sektor)\"
+- \"Bellek Bilgisi: ... MB RAM\"
 
-## Teknik Detaylar
-1. **MBR (`mbr.asm`):** Artik bir FAT32 Boot Sector (`jmp short start + NOP + BPB`) yapisindadir. LBA paketlerini kullanarak kernel'i diskten yükler.
-2. **Kurulum:** Kernel, hedef diske MBR'yi yazar, ardindan kernel'i "Reserved Sectors" alanina yerlestirir. Bu sayede dosya sistemiyle çakisma önlenir ve sistem kararliligi artar.
+## Derleme Komutlari
 
-## Derleme ve Kullanim
-`README_V2` üzerindeki derleme komutlari geçerlidir. Yeni ISO'yu kullanarak sistemi baslatin ve HDD'ye kurulumu seçin.
+### 1. Sistem Bagimliliklari
+\`\`\`bash
+sudo apt-get update
+sudo apt-get install -y nasm gcc-multilib grub-common grub-pc-bin xorriso mtools
+\`\`\`
+
+### 2. Derleme (Build)
+\`\`\`bash
+# MBR Derleme
+nasm -f bin mbr.asm -o mbr.bin
+
+# Kernel Derleme
+nasm -f elf32 boot.asm -o boot.o
+gcc -m32 -c kernel.c -o kernel.o -ffreestanding -O2 -Wall -Wextra -fno-stack-protector -fno-pie
+gcc -m32 -T linker.ld -o myos.bin -ffreestanding -O2 -nostdlib boot.o kernel.o -lgcc -no-pie -Wl,--build-id=none
+\`\`\`
+
+### 3. ISO Olusturma
+\`\`\`bash
+mkdir -p isodir/boot/grub
+cp myos.bin isodir/boot/myos.bin
+echo 'set timeout=0
+set default=0
+menuentry "NewRepo Kernel" {
+    multiboot /boot/myos.bin
+    boot
+}' > isodir/boot/grub/grub.cfg
+grub-mkrescue -o NewRepo.iso isodir
+\`\`\`
