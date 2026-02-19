@@ -80,23 +80,16 @@ void ata_identify() {
     outb(0x1F4, 0);
     outb(0x1F5, 0);
     outb(0x1F7, 0xEC);
-    
     uint8_t status = inb(0x1F7);
     if (status == 0) { terminal_writestring("HDD bulunamadi."); return; }
     while (inb(0x1F7) & 0x80);
     if (inb(0x1F4) != 0 || inb(0x1F5) != 0) { terminal_writestring("ATA degil."); return; }
     while (!(inb(0x1F7) & 0x08));
-    
     uint16_t data[256] = {0};
     for (int i = 0; i < 256; i++) data[i] = inw(0x1F0);
-    
     bool lba48 = data[83] & (1 << 10);
-    if (lba48) {
-        total_hdd_sectors = *((uint64_t*)(data + 100));
-    } else {
-        total_hdd_sectors = *((uint32_t*)(data + 60));
-    }
-
+    if (lba48) total_hdd_sectors = *((uint64_t*)(data + 100));
+    else total_hdd_sectors = *((uint32_t*)(data + 60));
     terminal_writestring("ATA HDD: ");
     uint64_t size_mb = (total_hdd_sectors * 512) / (1024 * 1024);
     if (size_mb >= 1024) {
@@ -134,7 +127,24 @@ char get_key() {
     return 0;
 }
 
-void wait_key() { while (!get_key()); }
+void wait_any_key() { while (!get_key()); }
+
+void ram_keyboard_test() {
+    terminal_writestring("\n--- Klavye & RAM Testi ---\n");
+    terminal_writestring("Yazdiginiz veriler RAM'e (0x1100000) yazilir ve dogrulanir.\n");
+    terminal_writestring("Cikmak icin ENTER'a basin.\n");
+    volatile char* ram_ptr = (volatile char*)0x1100000;
+    while (true) {
+        char c = get_key();
+        if (c) {
+            if (c == '\n') break;
+            terminal_putchar(c);
+            *ram_ptr = c;
+            if (*ram_ptr != c) terminal_writestring("[RAM HATASI!]");
+        }
+    }
+    terminal_writestring("\nTest bitti.\n");
+}
 
 void shutdown() {
     terminal_writestring("\nSistem kapatiliyor...\n");
@@ -158,7 +168,6 @@ void install_to_hdd() {
     uint8_t* k_end = _kernel_end;
     uint32_t k_size = (uint32_t)(k_end - k_start);
     uint32_t num_sectors = (k_size + 511) / 512;
-    if (num_sectors > 2047) { terminal_writestring("Hata: Kernel cok buyuk!\n"); return; }
     terminal_writestring("Kernel yaziliyor (");
     terminal_writeuint(num_sectors);
     terminal_writestring(" sektor)...\n");
@@ -168,7 +177,7 @@ void install_to_hdd() {
     }
     terminal_writestring("\nKurulum tamamlandi! FAT32 yapisi olusturuldu.\n");
     terminal_writestring("Lutfen ISO'yu cikarin ve yeniden baslatin.\n");
-    wait_key();
+    wait_any_key();
 }
 
 void kmain(struct multiboot_info* mb_info, uint32_t magic) {
@@ -185,13 +194,16 @@ void kmain(struct multiboot_info* mb_info, uint32_t magic) {
         terminal_writeuint((mb_info->mem_lower + mb_info->mem_upper) / 1024 + 1);
         terminal_writestring(" MB RAM\n");
     } else { terminal_writestring("Bilinmiyor\n"); }
+    
+    ram_keyboard_test();
+
     if (!from_hdd) {
         terminal_writestring("\nKerneli depolama alanina aktarmak icin herhangi bir tusa basin.\n");
-        wait_key();
+        wait_any_key();
         install_to_hdd();
     } else {
         terminal_writestring("\nBilgisayari kapatmak icin herhangi bir tusa basin.\n");
-        wait_key();
+        wait_any_key();
         shutdown();
     }
 }
