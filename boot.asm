@@ -40,8 +40,3 @@ _start:
     hlt
     jmp .hang
 .end:
-
-global _kernel_start
-global _kernel_end
-_kernel_start: dd 0x100000 ; This is a bit hacky, but we know where we are
-_kernel_end:   dd _kernel_end ; We'll use linker symbols instead
