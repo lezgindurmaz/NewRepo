@@ -98,13 +98,9 @@ void ata_identify() {
     }
     hdd_model[40] = '\0';
 
-    // Sector count
     bool lba48 = data[83] & (1 << 10);
-    if (lba48) {
-        total_hdd_sectors = *((uint64_t*)(data + 100));
-    } else {
-        total_hdd_sectors = *((uint32_t*)(data + 60));
-    }
+    if (lba48) total_hdd_sectors = *((uint64_t*)(data + 100));
+    else total_hdd_sectors = *((uint32_t*)(data + 60));
 
     terminal_writestring(hdd_model);
     terminal_writestring(" | ");
@@ -112,7 +108,7 @@ void ata_identify() {
     if (size_mb >= 1024) {
         terminal_writeuint(size_mb / 1024);
         terminal_writestring(".");
-        terminal_writeuint((size_mb % 1024) * 100 / 1024); // Two decimal places
+        terminal_writeuint((size_mb % 1024) * 100 / 1024);
         terminal_writestring(" GB");
     } else {
         terminal_writeuint(size_mb);
@@ -188,11 +184,9 @@ void shutdown() {
 extern uint8_t mbr_bin[];
 extern uint8_t kernel_bin[];
 extern uint32_t kernel_bin_size;
-extern uint8_t _kernel_start[];
-extern uint8_t _kernel_end[];
 
 void install_to_hdd() {
-    terminal_writestring("\nHDD'ye Güvenli Kurulum yapiliyor...\n");
+    terminal_writestring("\nHDD'ye Guvenli Kurulum yapiliyor...\n");
     uint16_t v_buf[256];
     uint8_t s0[512];
     for(int i=0; i<512; i++) s0[i] = mbr_bin[i];
