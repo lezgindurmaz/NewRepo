@@ -66,7 +66,7 @@ start:
     mov si, msg_loading
     call print_string
 
-    ; Load Kernel using LBA Extensions (Sector 1, load 64 sectors = 32KB)
+    ; Load Kernel using LBA Extensions (Sector 1, load 127 sectors = ~64KB)
     mov ah, 0x42
     mov dl, [boot_drive]
     mov si, dap
@@ -82,6 +82,11 @@ start:
     mov eax, cr0
     or eax, 1
     mov cr0, eax
+    
+    ; Pass magic value via EAX for detection in kernel
+    mov eax, 0x1337B001
+    mov ebx, 0 ; No multiboot info
+    
     jmp 0x08:init_pm
 
 no_lba:
@@ -91,24 +96,22 @@ no_lba:
 
 [bits 32]
 init_pm:
-    mov ax, 0x10
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
+    mov cx, 0x10
+    mov ds, cx
+    mov es, cx
+    mov fs, cx
+    mov gs, cx
+    mov ss, cx
 
     ; Relocate kernel from 0x8000 to 1MB
+    ; esi, edi are already used in previous version, but let's be explicit
     mov esi, 0x8000
     mov edi, 0x100000
-    mov ecx, 16384 ; 64KB (32KB is enough, but 64KB is safer)
+    mov ecx, 16384 ; 64KB in dwords
     rep movsd
 
-    mov esp, 0x90000
-    push 0x1337B001 ; Magic for HDD boot
-    push 0x0        ; No Multiboot info
-    
-    ; The kernel starts with a jump to hdd_entry in boot.asm
+    ; Jump to kernel (1MB)
+    ; Stack will be set up by kernel's boot.asm
     jmp 0x100000
 
 halt:
@@ -136,17 +139,17 @@ align 4
 dap:
     db 0x10    ; Size
     db 0       ; Reserved
-    dw 64      ; Sectors to read (32KB)
+    dw 127     ; Sectors to read (~64KB)
     dw 0x8000  ; Offset
     dw 0x0000  ; Segment
     dq 1       ; Start LBA (Sector 1)
 
 boot_drive db 0x80
-msg_hello   db "MBR v4.0", 13, 10, 0
+msg_hello   db "MBR v4.1", 13, 10, 0
 msg_loading db "Loading Kernel...", 0
-msg_jumping db " OK. Switching to PM...", 13, 10, 0
+msg_jumping db " OK. JMP 1MB...", 13, 10, 0
 msg_error   db 13, 10, "Disk Read Error!", 0
-msg_no_lba  db 13, 10, "LBA Extensions not supported!", 0
+msg_no_lba  db 13, 10, "LBA Error!", 0
 
 gdt_start:
     dd 0x0, 0x0
