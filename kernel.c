@@ -46,6 +46,11 @@ void terminal_putchar(char c) {
         if (++terminal_row == VGA_HEIGHT) terminal_row = 0;
         return;
     }
+    if (c == '\b') {
+        if (terminal_column > 0) terminal_column--;
+        terminal_buffer[terminal_row * VGA_WIDTH + terminal_column] = vga_entry(' ', terminal_color);
+        return;
+    }
     terminal_buffer[terminal_row * VGA_WIDTH + terminal_column] = vga_entry(c, terminal_color);
     if (++terminal_column == VGA_WIDTH) {
         terminal_column = 0;
@@ -117,7 +122,10 @@ char get_key() {
     return 0;
 }
 
-void wait_key() { while (!get_key()); }
+void wait_key() {
+    char c;
+    while (!(c = get_key()));
+}
 
 void shutdown() {
     terminal_writestring("\nSistem kapatiliyor...\n");
@@ -129,55 +137,62 @@ void shutdown() {
 
 extern uint8_t mbr_bin[];
 extern uint32_t mbr_bin_size;
-extern uint32_t _kernel_start;
-extern uint32_t _kernel_end;
+extern uint8_t _kernel_start[];
+extern uint8_t _kernel_end[];
 
 void install_to_hdd() {
     terminal_writestring("\nHDD'ye kopyalaniyor...\n");
-    
-    // Write MBR to Sector 0
     ata_write_sector(0, (uint16_t*)mbr_bin);
-    
-    // Write Kernel to Sector 1 onwards
-    uint8_t* k_start = (uint8_t*)&_kernel_start;
-    uint8_t* k_end = (uint8_t*)&_kernel_end;
+    uint8_t* k_start = _kernel_start;
+    uint8_t* k_end = _kernel_end;
     uint32_t k_size = (uint32_t)(k_end - k_start);
     uint32_t num_sectors = (k_size + 511) / 512;
-    
     terminal_writestring("Kernel boyutu: ");
     terminal_writeuint(k_size);
     terminal_writestring(" byte (");
     terminal_writeuint(num_sectors);
     terminal_writestring(" sektor)\n");
-
     for (uint32_t i = 0; i < num_sectors; i++) {
         ata_write_sector(i + 1, (uint16_t*)(k_start + i * 512));
         if (i % 10 == 0) terminal_putchar('.');
     }
-    
     terminal_writestring("\nTamamlandi! ISO'yu cikarin ve yeniden baslatin.\n");
     wait_key();
+}
+
+void ram_keyboard_test() {
+    terminal_writestring("\n--- Klavye & RAM Testi ---\n");
+    terminal_writestring("Yazdiginiz her karakter RAM'e (0x1100000) yazilir ve dogrulanir.\n");
+    terminal_writestring("Cikmak icin ENTER'a basin.\n");
+    volatile char* ram_ptr = (volatile char*)0x1100000;
+    while (true) {
+        char c = get_key();
+        if (c) {
+            if (c == '\n') break;
+            terminal_putchar(c);
+            *ram_ptr = c;
+            if (*ram_ptr != c) terminal_writestring("[RAM HATASI!]");
+        }
+    }
+    terminal_writestring("\nTest bitti.\n");
 }
 
 void kmain(struct multiboot_info* mb_info, uint32_t magic) {
     terminal_initialize();
     terminal_writestring("Kernel Calisiyor\n");
-    
     bool from_hdd = (magic == 0x1337B001);
     if (from_hdd) terminal_writestring("Durum: Depolama alanindan boot edildi\n");
     else terminal_writestring("Durum: Isodan boot edildi\n");
-    
     terminal_writestring("Depolama Bilgisi: ");
     ata_identify();
     terminal_putchar('\n');
-    
     terminal_writestring("Bellek Bilgisi: ");
     if (magic == 0x2BADB002 && mb_info && (mb_info->flags & 1)) {
         terminal_writeuint((mb_info->mem_lower + mb_info->mem_upper) / 1024 + 1);
         terminal_writestring(" MB RAM\n");
-    } else {
-        terminal_writestring("Bilinmiyor\n");
-    }
+    } else { terminal_writestring("Bilinmiyor\n"); }
+
+    ram_keyboard_test();
 
     if (!from_hdd) {
         terminal_writestring("\nKerneli depolama alanina aktarmak icin herhangi bir tusa basin.\n");
