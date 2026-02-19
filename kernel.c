@@ -57,10 +57,10 @@ void terminal_writestring(const char* data) {
     for (size_t i = 0; data[i] != '\0'; i++) terminal_putchar(data[i]);
 }
 
-void terminal_writeuint(uint32_t n) {
+void terminal_writeuint(uint64_t n) {
     if (n == 0) { terminal_putchar('0'); return; }
-    char buf[11];
-    int i = 10;
+    char buf[21];
+    int i = 20;
     buf[i--] = '\0';
     while (n > 0) { buf[i--] = (n % 10) + '0'; n /= 10; }
     terminal_writestring(&buf[i+1]);
@@ -72,6 +72,7 @@ static inline uint16_t inw(uint16_t port) { uint16_t ret; asm volatile ( "inw %1
 static inline void outw(uint16_t port, uint16_t val) { asm volatile ( "outw %0, %1" : : "a"(val), "Nd"(port) ); }
 
 uint64_t total_hdd_sectors = 0;
+char hdd_model[41];
 
 void ata_identify() {
     outb(0x1F6, 0xA0);
@@ -80,27 +81,46 @@ void ata_identify() {
     outb(0x1F4, 0);
     outb(0x1F5, 0);
     outb(0x1F7, 0xEC);
+    
     uint8_t status = inb(0x1F7);
     if (status == 0) { terminal_writestring("HDD bulunamadi."); return; }
     while (inb(0x1F7) & 0x80);
     if (inb(0x1F4) != 0 || inb(0x1F5) != 0) { terminal_writestring("ATA degil."); return; }
     while (!(inb(0x1F7) & 0x08));
+    
     uint16_t data[256] = {0};
     for (int i = 0; i < 256; i++) data[i] = inw(0x1F0);
+    
+    // Model name (Words 27-46)
+    for (int i = 0; i < 20; i++) {
+        hdd_model[i*2] = (char)(data[27 + i] >> 8);
+        hdd_model[i*2 + 1] = (char)(data[27 + i] & 0xFF);
+    }
+    hdd_model[40] = '\0';
+
+    // Sector count
     bool lba48 = data[83] & (1 << 10);
-    if (lba48) total_hdd_sectors = *((uint64_t*)(data + 100));
-    else total_hdd_sectors = *((uint32_t*)(data + 60));
-    terminal_writestring("ATA HDD: ");
+    if (lba48) {
+        total_hdd_sectors = *((uint64_t*)(data + 100));
+    } else {
+        total_hdd_sectors = *((uint32_t*)(data + 60));
+    }
+
+    terminal_writestring(hdd_model);
+    terminal_writestring(" | ");
     uint64_t size_mb = (total_hdd_sectors * 512) / (1024 * 1024);
     if (size_mb >= 1024) {
-        terminal_writeuint((uint32_t)(size_mb / 1024));
+        terminal_writeuint(size_mb / 1024);
         terminal_writestring(".");
-        terminal_writeuint((uint32_t)((size_mb % 1024) * 10 / 1024));
+        terminal_writeuint((size_mb % 1024) * 100 / 1024); // Two decimal places
         terminal_writestring(" GB");
     } else {
-        terminal_writeuint((uint32_t)size_mb);
+        terminal_writeuint(size_mb);
         terminal_writestring(" MB");
     }
+    terminal_writestring(" (");
+    terminal_writeuint(total_hdd_sectors);
+    terminal_writestring(" sektor)");
 }
 
 void ata_write_sector(uint32_t lba, uint16_t* buffer) {
@@ -166,6 +186,8 @@ void shutdown() {
 }
 
 extern uint8_t mbr_bin[];
+extern uint8_t kernel_bin[];
+extern uint32_t kernel_bin_size;
 extern uint8_t _kernel_start[];
 extern uint8_t _kernel_end[];
 
@@ -176,45 +198,60 @@ void install_to_hdd() {
     for(int i=0; i<512; i++) s0[i] = mbr_bin[i];
     *((uint32_t*)(s0 + 32)) = (uint32_t)total_hdd_sectors;
     
-    terminal_writestring("MBR yaziliyor... ");
+    terminal_writestring("1. MBR yaziliyor... ");
     ata_write_sector(0, (uint16_t*)s0);
     ata_read_sector(0, v_buf);
-    for(int i=0; i<256; i++) if(v_buf[i] != ((uint16_t*)s0)[i]) { terminal_writestring("Hata!"); return; }
+    for(int i=0; i<256; i++) if(v_buf[i] != ((uint16_t*)s0)[i]) { terminal_writestring("HATA!"); return; }
     terminal_writestring("OK.\n");
 
-    uint8_t* k_start = (uint8_t*)0x100000; // Copy from RAM (Load address)
-    uint32_t k_size = (uint32_t)((uintptr_t)_kernel_end - (uintptr_t)_kernel_start);
+    uint8_t* src_ptr = kernel_bin;
+    uint32_t k_size = kernel_bin_size;
     uint32_t n_sectors = (k_size + 511) / 512;
     
-    terminal_writestring("Kernel yaziliyor (");
+    terminal_writestring("2. Kernel yaziliyor (");
     terminal_writeuint(n_sectors);
     terminal_writestring(" sektor)...\n");
 
     for (uint32_t i = 0; i < n_sectors; i++) {
-        uint16_t* src = (uint16_t*)(k_start + i * 512);
-        ata_write_sector(i + 1, src);
+        uint16_t* sector_data = (uint16_t*)(src_ptr + i * 512);
+        ata_write_sector(i + 1, sector_data);
         ata_read_sector(i + 1, v_buf);
-        for(int j=0; j<256; j++) if(v_buf[j] != src[j]) { terminal_writestring("\nDogrulama hatasi!"); return; }
+        for(int j=0; j<256; j++) {
+            if(v_buf[j] != sector_data[j]) {
+                terminal_writestring("\nSEKTOR ");
+                terminal_writeuint(i+1);
+                terminal_writestring(" DOGRULAMA HATASI!");
+                return;
+            }
+        }
         if (i % 10 == 0) terminal_putchar('.');
     }
-    terminal_writestring("\nTamamlandi! Lutfen ISO'yu cikarin ve yeniden baslatin.\n");
+    terminal_writestring("\n3. Tamamlandi! Lutfen ISO'yu cikarin ve yeniden baslatin.\n");
     wait_any_key();
 }
 
 void kmain(struct multiboot_info* mb_info, uint32_t magic) {
     terminal_initialize();
     terminal_writestring("Kernel Calisiyor\n");
+    
     bool from_hdd = (magic == 0x1337B001);
     if (from_hdd) terminal_writestring("Durum: Depolama alanindan boot edildi\n");
     else terminal_writestring("Durum: Isodan boot edildi\n");
+    
     terminal_writestring("Depolama Bilgisi: ");
     ata_identify();
     terminal_putchar('\n');
+    
     terminal_writestring("Bellek Bilgisi: ");
     if (magic == 0x2BADB002 && mb_info && (mb_info->flags & 1)) {
-        terminal_writeuint((mb_info->mem_lower + mb_info->mem_upper) / 1024 + 1);
-        terminal_writestring(" MB RAM\n");
-    } else { terminal_writestring("Bilinmiyor\n"); }
+        uint64_t total_kb = mb_info->mem_lower + mb_info->mem_upper;
+        terminal_writeuint(total_kb / 1024 + 1);
+        terminal_writestring(" MB RAM (");
+        terminal_writeuint(total_kb);
+        terminal_writestring(" KB)\n");
+    } else {
+        terminal_writestring("Bilinmiyor (HDD Boot)\n");
+    }
     
     ram_keyboard_test();
 
