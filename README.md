@@ -1,55 +1,63 @@
-# NewRepo Kernel v5.0
+# NewRepo Kernel
 
-Bu kernel x86 32-bit mimarisinde çalisan, gelismis donanim tespiti ve yüksek kararlilikli HDD kurulum özelliklerine sahip bir çekirdektir.
+> Yayımlanmış en yeni etiket: [v5.1.0](https://github.com/lezgindurmaz/NewRepo/releases/tag/v5.1.0). Aşağıdaki v5.0 başlıklı notlar önceki README kapsamını anlatır.
+
+Bu depo, 32-bit x86 mimarisi için deneysel bir çekirdek ve önyükleme denemeleri içerir. C çekirdeği, assembly giriş kodu, linker betiği ve GRUB yapılandırması depodadır.
+
+> **Uyarı:** Kaynaklarda MBR/disk sektörlerine yazma işlemleri bulunur. Gerçek veya önemli veriler içeren bir diskte çalıştırmayın; yalnızca emülatör ya da atılabilir bir disk imajında test edin.
 
 ## Yenilikler (v5.0)
-- **Detayli HDD Tespiti:** Artik HDD Model Adini (örn: QEMU HARDDISK) ve hassas boyut bilgisini (GB/MB ve Sektör bazinda) gösterir.
-- **Düzeltilmis RAM Raporlama:** Multiboot üzerinden gelen bellek bilgisi hem ISO hem HDD boot durumlarinda dogru islenir.
-- **Hatasiz Metinler:** Tüm ekran çiktilari ASCII uyumlu standart Türkçe (i, s, c, g, o, u) karakterler ile temizlendi.
-- **Sessiz ve Kararli Boot:** Bootloader mesajlari sadelestirildi, A20 hatti ve LBA yükleme mantigi optimize edildi.
-- **Güvenli Dogrulama:** Kurulum sirasinda MBR ve Kernel verileri yazildiktan sonra anlik olarak dogrulanmaya devam eder.
+- **Detaylı HDD tespiti:** HDD model adı (örn. QEMU HARDDISK) ve boyut bilgisi (GB/MB ve sektör bazında).
+- **Düzeltilmiş RAM raporlama:** Multiboot üzerinden gelen bellek bilgisinin ISO ve HDD boot durumlarında işlenmesi.
+- **Daha tutarlı metinler:** Ekran çıktılarının sadeleştirilmesi.
+- **Boot iyileştirmeleri:** Bootloader mesajları, A20 hattı ve LBA yükleme mantığında düzenlemeler.
+- **Doğrulama:** Kurulum sırasında MBR ve kernel verileri yazıldıktan sonra doğrulanır.
 
-## Ekran Çiktilari
-- "Kernel Calisiyor"
-- "Durum: Isodan boot edildi"
-- "Depolama Bilgisi: [Model Name] | 1.25 GB (2621440 sektor)"
-- "Bellek Bilgisi: 512 MB RAM (524288 KB)"
+## Örnek ekran çıktıları
+- `Kernel Calisiyor`
+- `Durum: Isodan boot edildi`
+- `Depolama Bilgisi: [Model Name] | 1.25 GB (2621440 sektor)`
+- `Bellek Bilgisi: 512 MB RAM (524288 KB)`
 
-## Derleme Komutlari
+## Derleme
 
-### 1. Bagimliliklar
+Aşağıdaki yönergeler mevcut depo notlarından alınmıştır; donanım/disk yazma adımlarını emülatörde veya geçici bir disk imajında doğrulayın.
+
+### Bağımlılıklar
 ```bash
 sudo apt-get update
 sudo apt-get install -y nasm gcc-multilib grub-common grub-pc-bin xorriso mtools
 ```
 
-### 2. Derleme Süreci (Build)
+### Derleme adımları
 ```bash
-# 1. MBR Derle
+# 1. MBR'yi derle
 nasm -f bin mbr.asm -o mbr.bin
 
-# 2. Kernel Raw Binary Hazirla
+# 2. Kernel ikilisini hazırla
 touch kernel.bin
 nasm -f elf32 boot.asm -o boot.o
 gcc -m32 -c kernel.c -o kernel.o -ffreestanding -O2 -Wall -Wextra -fno-stack-protector -fno-pie
 gcc -m32 -T linker.ld -o myos_tmp.bin -ffreestanding -O2 -nostdlib boot.o kernel.o -lgcc -no-pie -Wl,--build-id=none
 objcopy -O binary myos_tmp.bin kernel.bin
 
-# 3. Final Kernel Derle
+# 3. Final kernel'i derle
 nasm -f elf32 boot.asm -o boot.o
 gcc -m32 -c kernel.c -o kernel.o -ffreestanding -O2 -Wall -Wextra -fno-stack-protector -fno-pie
 gcc -m32 -T linker.ld -o myos.bin -ffreestanding -O2 -nostdlib boot.o kernel.o -lgcc -no-pie -Wl,--build-id=none
 ```
 
-### 3. ISO Olusturma
+### ISO oluşturma
 ```bash
 mkdir -p isodir/boot/grub
 cp myos.bin isodir/boot/myos.bin
-echo 'set timeout=0
+cat > isodir/boot/grub/grub.cfg <<'EOF'
+set timeout=0
 set default=0
 menuentry "NewRepo Kernel" {
     multiboot /boot/myos.bin
     boot
-}' > isodir/boot/grub/grub.cfg
+}
+EOF
 grub-mkrescue -o NewRepo.iso isodir
 ```
